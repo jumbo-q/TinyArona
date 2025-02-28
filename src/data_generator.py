@@ -38,11 +38,11 @@ def get_dict(datas):
 
 
 if __name__ == '__main__':
-    generate_data('train.txt','dataset.txt')
-    with open('../dataset.txt','r',encoding='utf-8') as f:
+    generate_data('data/train.txt','data/dataset.txt')
+    with open('data/dataset.txt','r',encoding='utf-8') as f:
         datas = f.readlines()
     word2id, id2word = get_dict(datas)
 
     dict_datas = {"word2id":word2id,"id2word":id2word}
 
-    json.dump(dict_datas, open('../dict_datas.json', 'w', encoding='utf-8'))
+    json.dump(dict_datas, open('data/dict_datas.json', 'w', encoding='utf-8'))
