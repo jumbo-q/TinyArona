@@ -13,4 +13,4 @@ A Tiny CasualLM With Developed Only with Pytorch
 
 ### Training
 
-run (train.py)[./train.py]
+run [trian.py](./trainer.py)
