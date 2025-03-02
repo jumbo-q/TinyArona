@@ -18,3 +18,8 @@ A Tiny CasualLM With Developed Only with Pytorch
 ### Training
 
 run [trian.py](./trainer.py)
+
+
+# TODO
+- [ ] GQA
+- [ ] RoPE
