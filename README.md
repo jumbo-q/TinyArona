@@ -3,6 +3,10 @@ A Tiny CasualLM With Developed Only with Pytorch
 
 
 # Model Structure
+- tokenizer
+- MultiHeadAttention
+- FFN
+- Softmax
 
 # Setup
 ## trainner
