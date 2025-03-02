@@ -12,4 +12,15 @@ def make_data(datas):
 
     return train_datas
 
-class Head(nn.modules):
+class SingleHeadAttehtion(nn.modules):
+    def __init__(self,config):
+        super().__init__()
+
+class MultiHeadAttention(nn.modules):
+    def __init__(self):
+        super().__inti__()
+
+
+class Arona(nn.modules):
+    def __init__(self):
+        super().__init__()
