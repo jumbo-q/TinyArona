@@ -1,5 +1,5 @@
 # TinyArona
-A Tiny CasualLM
+A Tiny CasualLM With Developed Only with Pytorch
 
 
 # Model Structure
@@ -12,3 +12,5 @@ A Tiny CasualLM
 [Google Drive 互联网中文语料 📃](https://drive.google.com/file/d/1nEuew_KNpTMbyy7BO4c8bXMXN351RCPp/view?usp=sharing)
 
 ### Training
+
+run (train.py)[./train.py]

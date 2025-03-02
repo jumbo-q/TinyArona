@@ -13,5 +13,3 @@ def make_data(datas):
     return train_datas
 
 class Head(nn.modules):
-    def __init__(self):
-        supper()
