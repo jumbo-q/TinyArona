@@ -1,0 +1,8 @@
+*.txt
+temp*
+.ipynb
+.venv
+.idea
+*.pth
+data
+*.npy
