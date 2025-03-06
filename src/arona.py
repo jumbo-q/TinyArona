@@ -89,13 +89,14 @@ class ARONA(nn.Module):
             # 取最后一个token的logits
             next_token = logits[:, -1, :].argmax(dim=-1, keepdim=True)
 
-            # 终止条件
+
             if next_token.item() == self.eos_token:
                 break
 
             ids = torch.cat([ids, next_token], dim=-1)
 
         return ids
+    
     def generate_sentence(self, sentence):
         device = next(self.parameters()).device
         encoded = self.tokenizer.encode(sentence)
