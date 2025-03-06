@@ -4,6 +4,6 @@ temp*
 .venv
 .idea
 *.pth
-data/
+data/data.npy
 *.npy
 checkpoints/
