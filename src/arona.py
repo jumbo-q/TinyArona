@@ -43,70 +43,77 @@ class ARONA(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self,ids,target = None):
-        batch_size,seq_len = ids.shape
-        token_embedding = self.token_embedding(ids)
-        position_ids = torch.arange(seq_len, device=ids.device).unsqueeze(0).repeat(batch_size, 1)
-        pos_embedding = self.pos_embedding(
-            position_ids
-        )
+    def forward(self, ids, target=None):
+        batch_size, seq_len = ids.shape
 
-        X = token_embedding + pos_embedding
-        X = self.layers(X)
+        # 生成pad_mask [batch, 1, 1, seq_len]
+        pad_mask = (ids != ModelConfig.pad_token_id).unsqueeze(1).unsqueeze(2).to(ids.device)
+
+        # Embedding + Positional Encoding
+        token_embed = self.token_embedding(ids)  # [batch, seq, dim]
+        position_ids = torch.arange(seq_len, device=ids.device).expand(batch_size, seq_len)
+        pos_embed = self.pos_embedding(position_ids)  # [batch, seq, dim]
+        X = token_embed + pos_embed
+
+        # 逐层传递pad_mask
+        for layer in self.layers:
+            X = layer(X, mask=pad_mask)  # 需要Decoder Block接收mask
+
         X = self.layernorm_final(X)
         logits = self.lm_head(X)
+
+        # 计算损失时忽略pad位置
         if target is not None:
-            batch_size,seq_len,vocab_size = logits.shape
-            logits = logits.view(batch_size*seq_len,vocab_size)
-            target = target.view(batch_size*seq_len)
-            loss = F.cross_entropy(logits, target)
+            loss = F.cross_entropy(
+                logits.view(-1, logits.size(-1)),
+                target.view(-1),
+                ignore_index=ModelConfig.pad_token_id
+            )
         else:
             loss = None
-        return logits,loss
-    def generate(self, ids, max_new_tokens=ModelConfig.block_size):
-        eos_token = self.eos_token  # 假设EOS token已定义
-        for _ in range(max_new_tokens):
-            # 截断到block_size
-            if ids.size(1) > self.block_size:
-                ids = ids[:, -self.block_size:]
-            
-            logits, _ = self(ids)
-            logits = logits[:, -1, :]
-            probs = F.softmax(logits, dim=-1)
-            ids_next = torch.multinomial(probs, num_samples=1)
-            
-            # 检查是否生成EOS
-            if ids_next.item() == eos_token:
-                ids = torch.cat((ids, ids_next), dim=1)
-                break  # 立即终止生成
-            
-            ids = torch.cat((ids, ids_next), dim=1)
-        return ids
 
+        return logits, loss
+
+    def generate(self, ids, max_new_tokens=100):
+        for _ in range(max_new_tokens):
+            # 截断至block_size
+            if ids.size(1) >= ModelConfig.block_size:
+                ids = ids[:, -ModelConfig.block_size:]
+
+            # 生成当前pad_mask
+            pad_mask = (ids != ModelConfig.pad_token_id).unsqueeze(1).unsqueeze(2)
+
+            # 前向计算（使用修改后的forward）
+            logits, _ = self(ids, mask=pad_mask)
+
+            # 取最后一个token的logits
+            next_token = logits[:, -1, :].argmax(dim=-1, keepdim=True)
+
+            # 终止条件
+            if next_token.item() == self.eos_token:
+                break
+
+            ids = torch.cat([ids, next_token], dim=-1)
+
+        return ids
     def generate_sentence(self, sentence):
         device = next(self.parameters()).device
         encoded = self.tokenizer.encode(sentence)
         input_len = len(encoded)
-        
-        # 处理输入至block_size长度
+
         if input_len < self.block_size:
-            encoded += [self.eos_token] * (self.block_size - input_len)
-            padded_len = self.block_size
+            encoded += [ModelConfig.pad_token_id] * (self.block_size - input_len)
         else:
             encoded = encoded[-self.block_size:]
-            padded_len = self.block_size
-        
+
+
         input_ids = torch.tensor([encoded], dtype=torch.long).to(device)
         generated_ids = self.generate(input_ids)
-        
-        # 提取新生成的token（block_size之后的部分）
-        new_ids = generated_ids[0, padded_len:].cpu().tolist()
-        
-        # 截断至EOS
-        if self.eos_token in new_ids:
-            eos_pos = new_ids.index(self.eos_token)
-            new_ids = new_ids[:eos_pos]
-        
+
+
+        new_ids = [id for id in generated_ids[0].cpu().tolist()
+                   if id not in [self.eos_token, ModelConfig.pad_token_id]]
+
         return self.tokenizer.decode(new_ids)
 
 class AronaDataset(Dataset):
@@ -132,15 +139,15 @@ class AronaDataset(Dataset):
         self.enc_data = []
         for text in raw_enc_data:
             chunk = text.copy()
-            target_length = config.block_size + 1 
-            
+            target_length = config.block_size + 1
+
             if len(chunk) > target_length:
                 chunk = chunk[-target_length:]
-                
+
             elif len(chunk) < target_length:
                 pad_needed = target_length - len(chunk)
                 chunk += [self.eos_token] * pad_needed
-                
+
             self.enc_data.append(chunk)
 
     def __len__(self):
