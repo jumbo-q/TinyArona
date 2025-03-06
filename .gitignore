@@ -6,3 +6,4 @@ temp*
 *.pth
 data/
 *.npy
+checkpoints/
