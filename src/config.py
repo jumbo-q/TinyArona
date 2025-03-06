@@ -1,9 +1,11 @@
 from dataclasses import dataclass
 @dataclass
 class ModelConfig:
+    batch_size: int=12
+    block_size: int=512
     num_head: int = 2
-    decoder_layer: int = 4
-    embedding_dim:int = 256
-@dataclass
-class TrainConfig:
-    batch_size:int=2
+    n_layer: int = 4
+    hidden_dim: int = 1024
+    dropout: float=0.1
+    eps: float=1e-8
+    vocab_size: int=50000
