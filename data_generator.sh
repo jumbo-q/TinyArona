@@ -1,2 +1,2 @@
 export PYTHON_PATH=TinyArona
-python src/data_generator.py
+python src/utils/data_generator.py

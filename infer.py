@@ -4,7 +4,7 @@ from src import arona
 
 if __name__ == '__main__':
     device = torch.device('cuda')
-    model = GPT().to(device)
+    model = arona().to(device)
     model.load_state_dict(torch.load('GPT2.pt'))
 
 
@@ -15,8 +15,8 @@ if __name__ == '__main__':
     while True:
         temp_sentence = input("我:")
         sentence += (temp_sentence + '\t')
-        if len(sentence) > 200:
-            #由于该模型输入最大长度为300，避免长度超出限制长度过长需要进行裁剪
+        if len(sentence) > 512:
+            #由于该模型输入最大长度为512，避免长度超出限制长度过长需要进行裁剪
             t_index = sentence.find('\t')
             sentence = sentence[t_index + 1:]
-        print("机器人:", model.answer(sentence))
+        print("ARONA:", model.answer(sentence))
