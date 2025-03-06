@@ -14,7 +14,7 @@ class ModelConfig:
     data_max_lines:int= int(4e6)
     pad_token:str = "<|pad|>"
 
-    batch_size = 12
+    batch_size = 124
     num_epochs = 5
     learning_rate = 3e-4
     min_learning_rate = 1e-5

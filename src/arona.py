@@ -55,14 +55,14 @@ class ARONA(nn.Module):
         pos_embed = self.pos_embedding(position_ids)  # [batch, seq, dim]
         X = token_embed + pos_embed
 
-        # 逐层传递pad_mask
+
         for layer in self.layers:
             X = layer(X, mask=pad_mask)  # 需要Decoder Block接收mask
 
         X = self.layernorm_final(X)
         logits = self.lm_head(X)
 
-        # 计算损失时忽略pad位置
+
         if target is not None:
             loss = F.cross_entropy(
                 logits.view(-1, logits.size(-1)),
@@ -76,17 +76,17 @@ class ARONA(nn.Module):
 
     def generate(self, ids, max_new_tokens=100):
         for _ in range(max_new_tokens):
-            # 截断至block_size
+
             if ids.size(1) >= ModelConfig.block_size:
                 ids = ids[:, -ModelConfig.block_size:]
 
-            # 生成当前pad_mask
+
             pad_mask = (ids != ModelConfig.pad_token_id).unsqueeze(1).unsqueeze(2)
 
-            # 前向计算（使用修改后的forward）
+
             logits, _ = self(ids, mask=pad_mask)
 
-            # 取最后一个token的logits
+
             next_token = logits[:, -1, :].argmax(dim=-1, keepdim=True)
 
 

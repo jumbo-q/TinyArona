@@ -4,7 +4,7 @@ import torch
 from torch.utils.data import DataLoader, random_split
 from src.arona import AronaDataset, ARONA
 from src.config import ModelConfig
-
+import time
 def main():
 
     config = ModelConfig()
@@ -47,7 +47,10 @@ def main():
     os.makedirs("checkpoints", exist_ok=True)
     
     for epoch in range(config.num_epochs):
-       
+
+        localtime = time.asctime( time.localtime(time.time()) )
+
+        print('🕐 Current time: ', localtime)
         model.train()
         epoch_progress = tqdm(
             train_loader,
@@ -68,6 +71,7 @@ def main():
 
             global_step += 1
             samples_processed += x.size(0)
+
             epoch_progress.set_postfix({
                 "loss": f"{loss.item():.4f}",
                 "lr": f"{scheduler.get_last_lr()[0]:.2e}"
