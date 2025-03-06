@@ -75,46 +75,35 @@ class ARONA(nn.Module):
         return logits, loss
 
     def generate(self, ids, max_new_tokens=100):
+        self.eval()
         for _ in range(max_new_tokens):
-
+            
             if ids.size(1) >= ModelConfig.block_size:
-                ids = ids[:, -ModelConfig.block_size:]
+                ids_cond = ids[:, -ModelConfig.block_size:]
+            else:
+                ids_cond = ids
+            
+            logits, _ = self(ids_cond)
 
-
-            pad_mask = (ids != ModelConfig.pad_token_id).unsqueeze(1).unsqueeze(2)
-
-
-            logits, _ = self(ids, mask=pad_mask)
-
-
-            next_token = logits[:, -1, :].argmax(dim=-1, keepdim=True)
-
-
+            probs = F.softmax(logits[:, -1, :] / 0.7, dim=-1)
+            next_token = torch.multinomial(probs, num_samples=1)
             if next_token.item() == self.eos_token:
                 break
-
             ids = torch.cat([ids, next_token], dim=-1)
-
         return ids
     
     def generate_sentence(self, sentence):
         device = next(self.parameters()).device
         encoded = self.tokenizer.encode(sentence)
         input_len = len(encoded)
-
         if input_len < self.block_size:
             encoded += [ModelConfig.pad_token_id] * (self.block_size - input_len)
         else:
             encoded = encoded[-self.block_size:]
-
-
         input_ids = torch.tensor([encoded], dtype=torch.long).to(device)
         generated_ids = self.generate(input_ids)
-
-
         new_ids = [id for id in generated_ids[0].cpu().tolist()
-                   if id not in [self.eos_token, ModelConfig.pad_token_id]]
-
+                if id not in [self.eos_token, ModelConfig.pad_token_id]]
         return self.tokenizer.decode(new_ids)
 
 class AronaDataset(Dataset):
@@ -138,17 +127,17 @@ class AronaDataset(Dataset):
             raw_enc_data.append(encoded)   
 
         self.enc_data = []
+        
+        
         for text in raw_enc_data:
             chunk = text.copy()
             target_length = config.block_size + 1
-
             if len(chunk) > target_length:
                 chunk = chunk[-target_length:]
-
             elif len(chunk) < target_length:
                 pad_needed = target_length - len(chunk)
-                chunk += [self.eos_token] * pad_needed
 
+                chunk += [ModelConfig.pad_token_id] * pad_needed
             self.enc_data.append(chunk)
 
     def __len__(self):

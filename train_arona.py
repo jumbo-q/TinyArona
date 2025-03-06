@@ -1,16 +1,16 @@
 import os
 from tqdm import tqdm
 import torch
+import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader, random_split
 from src.arona import AronaDataset, ARONA
 from src.config import ModelConfig
 import time
-def main():
 
+def main():
     config = ModelConfig()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-
     dataset = AronaDataset(config)
     train_dataset, val_dataset = random_split(dataset, [0.9, 0.1])
     
@@ -29,7 +29,6 @@ def main():
         num_workers=4
     )
 
-
     model = ARONA(config).to(device)
     print(f"Total parameters: {sum(p.numel() for p in model.parameters()) / 1e6:.2f}M")
 
@@ -41,17 +40,19 @@ def main():
         eta_min=config.min_learning_rate
     )
 
-   
     global_step = 0
     samples_processed = 0
     os.makedirs("checkpoints", exist_ok=True)
     
+    train_losses = []
+    val_losses = []
+
     for epoch in range(config.num_epochs):
-
-        localtime = time.asctime( time.localtime(time.time()) )
-
-        print('🕐 Current time: ', localtime)
+        localtime = time.asctime(time.localtime(time.time()))
+        print('🕐 Current time:', localtime)
+        
         model.train()
+        total_train_loss = 0.0
         epoch_progress = tqdm(
             train_loader,
             desc=f"Epoch {epoch+1}/{config.num_epochs}",
@@ -71,6 +72,7 @@ def main():
 
             global_step += 1
             samples_processed += x.size(0)
+            total_train_loss += loss.item()
 
             epoch_progress.set_postfix({
                 "loss": f"{loss.item():.4f}",
@@ -78,24 +80,38 @@ def main():
             })
 
             if samples_processed >= 10000:
-                save_checkpoint(
+                save_checkpoint_(
                     model, optimizer, scheduler,
                     epoch, global_step, samples_processed,
                     loss.item(), "step_checkpoint"
                 )
-                samples_processed %= 10000  
+                samples_processed %= 10000
 
+        avg_train_loss = total_train_loss / len(train_loader)
+        train_losses.append(avg_train_loss)
+        
         val_loss = evaluate(model, val_loader, device)
-        print(f"\nEpoch {epoch+1} validation loss: {val_loss:.4f}")
+        val_losses.append(val_loss)
+        print(f"\nEpoch {epoch+1} - Train loss: {avg_train_loss:.4f}, Val loss: {val_loss:.4f}")
 
-        save_checkpoint(
+        
+        save_checkpoint_(
             model, optimizer, scheduler,
             epoch, global_step, samples_processed,
             val_loss, "epoch_checkpoint"
         )
 
-def evaluate(model, data_loader, device):
+        plt.figure()
+        plt.plot(train_losses, label='Training Loss')
+        plt.plot(val_losses, label='Validation Loss')
+        plt.xlabel('Epoch')
+        plt.ylabel('Loss')
+        plt.title('Training and Validation Loss Curves')
+        plt.legend()
+        plt.savefig(os.path.join("checkpoints", "loss_curve.png"))
+        plt.close()
 
+def evaluate(model, data_loader, device):
     model.eval()
     total_loss = 0
     with torch.no_grad():
@@ -105,8 +121,7 @@ def evaluate(model, data_loader, device):
             total_loss += loss.item()
     return total_loss / len(data_loader)
 
-def save_checkpoint(model, optimizer, scheduler, epoch, step, samples, loss, ctype):
-
+def save_checkpoint_(model, optimizer, scheduler, epoch, step, samples, loss, ctype):
     checkpoint = {
         "epoch": epoch,
         "global_step": step,
@@ -116,7 +131,6 @@ def save_checkpoint(model, optimizer, scheduler, epoch, step, samples, loss, cty
         "scheduler_state": scheduler.state_dict(),
         "loss": loss,
     }
-    
     filename = f"{ctype}_e{epoch+1}_s{step}_{loss:.4f}.pth"
     torch.save(checkpoint, os.path.join("checkpoints", filename))
     print(f"Saved {ctype} at step {step}")
