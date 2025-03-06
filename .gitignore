@@ -1,7 +1,0 @@
-*.txt
-temp*
-.ipynb
-.venv
-.idea
-*.pth
-*.npy
