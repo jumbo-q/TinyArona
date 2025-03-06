@@ -35,7 +35,8 @@ class MultiHeadAttetion(nn.Module):
         state_q = Q.view(batch,len,self.n_heads, -1).transpose(1, 2)
         state_k = K.view(batch,len, self.n_heads, -1).transpose(1, 2)
         state_v = V.view(batch,len, self.n_heads, -1).transpose(1, 2)
-        atten_weights = state_q @ state_k.transpose(-1, -2)/math.sqrt(self.hidden_dim)
+        head_dim = self.hidden_dim // self.n_heads
+        atten_weights = state_q @ state_k.transpose(-1, -2) / math.sqrt(head_dim)
         atten_weights = atten_weights.masked_fill(self.attention_mask[:] == 0, float('-inf'))
         atten_weights = F.softmax(atten_weights, dim=-1)
         atten_weights = self.dropout(atten_weights)

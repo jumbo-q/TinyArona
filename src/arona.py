@@ -33,7 +33,8 @@ class ARONA(nn.Module):
         self.lm_head = nn.Linear(config.hidden_dim, config.vocab_size,bias=False)
         if tie_weights:
             self.token_embedding.weight=self.lm_head.weight
-
+        self.apply(self._init_weights)
+        
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
@@ -63,35 +64,50 @@ class ARONA(nn.Module):
             loss = None
         return logits,loss
     def generate(self, ids, max_new_tokens=ModelConfig.block_size):
-        # 修正截断逻辑：基于序列长度而非batch维度
+        eos_token = self.eos_token  # 假设EOS token已定义
         for _ in range(max_new_tokens):
-            # 修正这里的截断判断
-            current_seq_len = ids.size(1)  # 获取当前序列长度
-            if current_seq_len > self.block_size:
-                ids = ids[:, -self.block_size:]  # 截断到block_size长度
+            # 截断到block_size
+            if ids.size(1) > self.block_size:
+                ids = ids[:, -self.block_size:]
             
             logits, _ = self(ids)
             logits = logits[:, -1, :]
             probs = F.softmax(logits, dim=-1)
             ids_next = torch.multinomial(probs, num_samples=1)
+            
+            # 检查是否生成EOS
+            if ids_next.item() == eos_token:
+                ids = torch.cat((ids, ids_next), dim=1)
+                break  # 立即终止生成
+            
             ids = torch.cat((ids, ids_next), dim=1)
         return ids
 
     def generate_sentence(self, sentence):
         device = next(self.parameters()).device
         encoded = self.tokenizer.encode(sentence)
+        input_len = len(encoded)
         
-        # 强制填充/截断到block_size
-        if len(encoded) < self.block_size:
-            # 用EOS token填充到固定长度
-            encoded += [self.eos_token] * (self.block_size - len(encoded))
+        # 处理输入至block_size长度
+        if input_len < self.block_size:
+            encoded += [self.eos_token] * (self.block_size - input_len)
+            padded_len = self.block_size
         else:
-            # 截断到固定长度
             encoded = encoded[-self.block_size:]
-            
-        ids = torch.tensor([encoded], dtype=torch.long).to(device)
-        generated_ids = self.generate(ids)
-        return self.tokenizer.decode(generated_ids[0].cpu().tolist())
+            padded_len = self.block_size
+        
+        input_ids = torch.tensor([encoded], dtype=torch.long).to(device)
+        generated_ids = self.generate(input_ids)
+        
+        # 提取新生成的token（block_size之后的部分）
+        new_ids = generated_ids[0, padded_len:].cpu().tolist()
+        
+        # 截断至EOS
+        if self.eos_token in new_ids:
+            eos_pos = new_ids.index(self.eos_token)
+            new_ids = new_ids[:eos_pos]
+        
+        return self.tokenizer.decode(new_ids)
 
 class AronaDataset(Dataset):
     def __init__(self,config:ModelConfig):

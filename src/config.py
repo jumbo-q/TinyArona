@@ -11,3 +11,4 @@ class ModelConfig:
     vocab_size: int=50257  
     encoding_type:str = 'gpt2'
     data_max_lines:int=2048
+    
