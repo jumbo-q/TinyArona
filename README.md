@@ -13,7 +13,11 @@ A Tiny CasualLM With Developed Only with Pytorch
 
 ### dataset
 
-[Google Drive 互联网中文语料 📃](https://drive.google.com/file/d/1nEuew_KNpTMbyy7BO4c8bXMXN351RCPp/view?usp=sharing)
+[Genshin Impact (from huggingface)](https://huggingface.co/datasets/simon3000/genshin-voice)
+
+[!IMPORTANT]
+> Need to use [data_generator.py](./tools/data_generator.py) to generate format data
+
 
 ### Training
 
