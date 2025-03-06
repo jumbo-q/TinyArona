@@ -27,23 +27,44 @@ class MultiHeadAttetion(nn.Module):
         self.dropout = nn.Dropout(config.dropout)
         self.o_proj = nn.Linear(config.hidden_dim, config.hidden_dim)
 
-    def forward(self, X):
+    def forward(self, X, mask=None):
         Q = self.query_proj(X)
         K = self.key_proj(X)
         V = self.value_proj(X)
-        batch,len,_ = X.shape
-        state_q = Q.view(batch,len,self.n_heads, -1).transpose(1, 2)
-        state_k = K.view(batch,len, self.n_heads, -1).transpose(1, 2)
-        state_v = V.view(batch,len, self.n_heads, -1).transpose(1, 2)
-        head_dim = self.hidden_dim // self.n_heads
-        atten_weights = state_q @ state_k.transpose(-1, -2) / math.sqrt(head_dim)
-        atten_weights = atten_weights.masked_fill(self.attention_mask[:] == 0, float('-inf'))
-        atten_weights = F.softmax(atten_weights, dim=-1)
-        atten_weights = self.dropout(atten_weights)
-        out =  atten_weights@state_v
-        out = out.view(batch,len,-1)
-        out=self.o_proj(out)
-        return out
+
+        batch_size, seq_len, _ = X.shape
+        device = X.device
+
+        # --- 动态生成因果掩码 ---
+        causal_mask = self.attention_mask[:seq_len, :seq_len].to(device)  # [seq, seq]
+        causal_mask = causal_mask.bool()  # 转换为布尔型
+
+        # --- 合并因果掩码和pad_mask ---
+        if mask is not None:
+            # 调整pad_mask形状 [batch,1,1,seq] => [batch,1,seq,seq]
+            pad_mask = mask.expand(-1, -1, seq_len, -1)
+            combined_mask = causal_mask.unsqueeze(0) & pad_mask  # [batch,1,seq,seq]
+        else:
+            combined_mask = causal_mask.unsqueeze(0)  # [1,1,seq,seq]
+
+        # --- 多头拆分 ---
+        Q = Q.view(batch_size, seq_len, self.n_heads, -1).transpose(1, 2)  # [b,h,s,d]
+        K = K.view(batch_size, seq_len, self.n_heads, -1).transpose(1, 2)
+        V = V.view(batch_size, seq_len, self.n_heads, -1).transpose(1, 2)
+
+        # --- 注意力计算 ---
+        attn_scores = Q @ K.transpose(-1, -2) / math.sqrt(Q.size(-1))
+        attn_scores = attn_scores.masked_fill(~combined_mask, float('-inf'))  # 关键修改点
+
+        attn_weights = F.softmax(attn_scores, dim=-1)
+        attn_weights = self.dropout(attn_weights)
+
+        # --- 输出投影 ---
+        output = (attn_weights @ V).transpose(1, 2).contiguous()
+        output = output.view(batch_size, seq_len, -1)
+        return self.o_proj(output)
+
+
 class FFN(nn.Module):
     def __init__(self, config: ModelConfig):
         super(FFN, self).__init__()
@@ -64,13 +85,19 @@ class FFN(nn.Module):
 
 class decoder_block(nn.Module):
     def __init__(self, config: ModelConfig):
-        super(decoder_block, self).__init__()
-        self.layernorm1 = nn.LayerNorm(config.hidden_dim,eps=config.eps)
+        super().__init__()
+        self.layernorm1 = nn.LayerNorm(config.hidden_dim, eps=config.eps)
         self.MHA = MultiHeadAttetion(config)
         self.FFN = FFN(config)
-        self.layernorm2 = nn.LayerNorm(config.hidden_dim,eps=config.eps)
+        self.layernorm2 = nn.LayerNorm(config.hidden_dim, eps=config.eps)
 
-    def forward(self, X):
-        X=X+self.MHA(self.layernorm1(X))
-        X=X+self.FFN(self.layernorm2(X))
+    def forward(self, X, mask=None):
+        # 第一层：自注意力 + 残差
+        attn_output = self.MHA(self.layernorm1(X), mask=mask)  # 传入mask
+        X = X + attn_output
+
+        # 第二层：FFN + 残差
+        ffn_output = self.FFN(self.layernorm2(X))
+        X = X + ffn_output
+
         return X
