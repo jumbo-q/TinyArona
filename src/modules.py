@@ -6,9 +6,9 @@ from src.config import ModelConfig
 import math
 
 
-class MultiHeadAttehtion(nn.Module):
+class MultiHeadAttetion(nn.Module):
     def __init__(self, config: ModelConfig):
-        super(MultiHeadAttehtion, self).__init__()
+        super(MultiHeadAttetion, self).__init__()
         self.n_heads = config.num_head
         self.hidden_dim = config.hidden_dim
         self.query_proj = nn.Linear(config.hidden_dim, config.hidden_dim)
@@ -18,8 +18,8 @@ class MultiHeadAttehtion(nn.Module):
             'attention_mask',
             torch.tril(
                 torch.ones(
-                    config.hidden_dim,
-                    config.hidden_dim,
+                    config.block_size,
+                    config.block_size,
                 )
             )
         )
@@ -35,7 +35,7 @@ class MultiHeadAttehtion(nn.Module):
         state_q = Q.view(batch,len,self.n_heads, -1).transpose(1, 2)
         state_k = K.view(batch,len, self.n_heads, -1).transpose(1, 2)
         state_v = V.view(batch,len, self.n_heads, -1).transpose(1, 2)
-        atten_weights = state_q @ state_k.transpose(1, 2)/math.sqrt(self.hidden_dim)
+        atten_weights = state_q @ state_k.transpose(-1, -2)/math.sqrt(self.hidden_dim)
         atten_weights = atten_weights.masked_fill(self.attention_mask[:] == 0, float('-inf'))
         atten_weights = F.softmax(atten_weights, dim=-1)
         atten_weights = self.dropout(atten_weights)
@@ -50,7 +50,7 @@ class FFN(nn.Module):
         self.act_layer = nn.GELU()
         self.down_proj = nn.Linear(config.hidden_dim*4, config.hidden_dim)
         self.dropout = nn.Dropout(config.dropout)
-        self.layer_norm = nn.LayerNorm(eps=config.eps)
+        self.layer_norm = nn.LayerNorm(config.hidden_dim,eps=config.eps)
 
     def forward(self, X):
         out = self.up_proj(X)
@@ -65,7 +65,7 @@ class decoder_block(nn.Module):
     def __init__(self, config: ModelConfig):
         super(decoder_block, self).__init__()
         self.layernorm1 = nn.LayerNorm(config.hidden_dim,eps=config.eps)
-        self.MHA = MultiHeadAttehtion(config)
+        self.MHA = MultiHeadAttetion(config)
         self.FFN = FFN(config)
         self.layernorm2 = nn.LayerNorm(config.hidden_dim,eps=config.eps)
 

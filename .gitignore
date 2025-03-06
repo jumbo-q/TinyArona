@@ -3,3 +3,4 @@ temp*
 .ipynb
 .venv
 .idea
+*.pth

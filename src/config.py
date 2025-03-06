@@ -8,6 +8,6 @@ class ModelConfig:
     hidden_dim: int = 1024
     dropout: float=0.1
     eps: float=1e-8
-    vocab_size: int=7586
+    vocab_size: int=50257  
     encoding_type:str = 'gpt2'
     data_max_lines:int=2048
