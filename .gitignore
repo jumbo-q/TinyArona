@@ -4,7 +4,7 @@ temp*
 .venv
 .idea
 *.pth
-data/data.npy
+data/*
 *.npy
-checkpoints/
-__pycache__
+checkpoints/*
+src/__pycache__
