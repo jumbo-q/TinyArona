@@ -9,7 +9,7 @@ if __name__ == '__main__':
     
     
     model = ARONA(ModelConfig).to(device)
-    checkpoint = torch.load('checkpoints/step_checkpoint_e2_s1452_0.7749.pth', 
+    checkpoint = torch.load('checkpoints/epoch_checkpoint_e2_s8684_1.8905.pth',
                           map_location=device)
     model.load_state_dict(checkpoint['model_state'])
     model.eval()

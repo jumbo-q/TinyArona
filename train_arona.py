@@ -79,13 +79,13 @@ def main():
                 "lr": f"{scheduler.get_last_lr()[0]:.2e}"
             })
 
-            if samples_processed >= 10000:
-                save_checkpoint_(
-                    model, optimizer, scheduler,
-                    epoch, global_step, samples_processed,
-                    loss.item(), "step_checkpoint"
-                )
-                samples_processed %= 10000
+            # if samples_processed >= 10000:
+            #     save_checkpoint_(
+            #         model, optimizer, scheduler,
+            #         epoch, global_step, samples_processed,
+            #         loss.item(), "step_checkpoint"
+            #     )
+            #     samples_processed %= 10000
 
         avg_train_loss = total_train_loss / len(train_loader)
         train_losses.append(avg_train_loss)
@@ -101,15 +101,7 @@ def main():
             val_loss, "epoch_checkpoint"
         )
 
-        plt.figure()
-        plt.plot(train_losses, label='Training Loss')
-        plt.plot(val_losses, label='Validation Loss')
-        plt.xlabel('Epoch')
-        plt.ylabel('Loss')
-        plt.title('Training and Validation Loss Curves')
-        plt.legend()
-        plt.savefig(os.path.join("checkpoints", "loss_curve.png"))
-        plt.close()
+
 
 def evaluate(model, data_loader, device):
     model.eval()
