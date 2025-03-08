@@ -2,7 +2,6 @@ import torch
 from torch.utils.data import DataLoader
 import torch.nn as nn
 import torch.nn.functional as F
-from src.config import ModelConfig
 from torch.utils.data import DataLoader, Dataset
 import tiktoken
 import numpy as np
@@ -282,7 +281,7 @@ class AronaDataset(Dataset):
             "<|endoftext|>",
             allowed_special={"<|endoftext|>"}
         )[0]
-        data = np.load('data/data.npy')
+        data = np.load('/content/drive/MyDrive/TinyArona/data.npy')
 
         data = data[:self.data_max_lines]
 
