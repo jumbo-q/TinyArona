@@ -3,8 +3,7 @@ from tqdm import tqdm
 import torch
 import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader, random_split
-from src.arona import AronaDataset, ARONA
-from src.config import ModelConfig
+
 import time
 
 def main():
@@ -19,7 +18,7 @@ def main():
         batch_size=config.batch_size,
         shuffle=True,
         drop_last=True,
-        num_workers=4
+        num_workers=2
     )
     val_loader = DataLoader(
         val_dataset,
@@ -124,7 +123,8 @@ def save_checkpoint_(model, optimizer, scheduler, epoch, step, samples, loss, ct
         "loss": loss,
     }
     filename = f"{ctype}_e{epoch+1}_s{step}_{loss:.4f}.pth"
-    torch.save(checkpoint, os.path.join("checkpoints", filename))
+
+    torch.save(checkpoint, os.path.join("/content/drive/MyDrive/checkpoints", filename))
     print(f"Saved {ctype} at step {step}")
 
 if __name__ == "__main__":
