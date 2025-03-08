@@ -1,10 +1,10 @@
 from dataclasses import dataclass
 @dataclass
 class ModelConfig:
-    batch_size: int=48
-    block_size: int=128
-    num_head: int = 2
-    n_layer: int = 4
+    batch_size: int=12
+    block_size: int=64
+    num_head: int = 16
+    n_layer: int = 8
     hidden_dim: int = 1024
     dropout: float=0.1
     eps: float=1e-8
@@ -14,8 +14,7 @@ class ModelConfig:
     data_max_lines:int= int(4e6)
     pad_token:str = "<|pad|>"
 
-    batch_size = 24
-    num_epochs = 5
+    num_epochs = 20
     learning_rate = 3e-4
     min_learning_rate = 1e-5
     weight_decay = 0.01
