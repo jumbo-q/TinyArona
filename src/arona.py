@@ -37,31 +37,25 @@ class MultiHeadAttetion(nn.Module):
         batch_size, seq_len, _ = X.shape
         device = X.device
 
-        # --- 动态生成因果掩码 ---
         causal_mask = self.attention_mask[:seq_len, :seq_len].to(device)  # [seq, seq]
         causal_mask = causal_mask.bool()  # 转换为布尔型
 
-        # --- 合并因果掩码和pad_mask ---
         if mask is not None:
-            # 调整pad_mask形状 [batch,1,1,seq] => [batch,1,seq,seq]
             pad_mask = mask.expand(-1, -1, seq_len, -1)
             combined_mask = causal_mask.unsqueeze(0) & pad_mask  # [batch,1,seq,seq]
         else:
             combined_mask = causal_mask.unsqueeze(0)  # [1,1,seq,seq]
 
-        # --- 多头拆分 ---
         Q = Q.view(batch_size, seq_len, self.n_heads, -1).transpose(1, 2)  # [b,h,s,d]
         K = K.view(batch_size, seq_len, self.n_heads, -1).transpose(1, 2)
         V = V.view(batch_size, seq_len, self.n_heads, -1).transpose(1, 2)
 
-        # --- 注意力计算 ---
         attn_scores = Q @ K.transpose(-1, -2) / math.sqrt(Q.size(-1))
         attn_scores = attn_scores.masked_fill(~combined_mask, float('-inf'))  # 关键修改点
 
         attn_weights = F.softmax(attn_scores, dim=-1)
         attn_weights = self.dropout(attn_weights)
 
-        # --- 输出投影 ---
         output = (attn_weights @ V).transpose(1, 2).contiguous()
         output = output.view(batch_size, seq_len, -1)
         return self.o_proj(output)
@@ -140,7 +134,7 @@ class ARONA(nn.Module):
     def forward(self, ids, target=None):
         batch_size, seq_len = ids.shape
 
-        # 生成pad_mask [batch, 1, 1, seq_len]
+        # pad_mask [batch, 1, 1, seq_len]
         pad_mask = (ids != ModelConfig.pad_token_id).unsqueeze(1).unsqueeze(2).to(ids.device)
 
         # Embedding + Positional Encoding
@@ -170,7 +164,7 @@ class ARONA(nn.Module):
 
     def generate(self, ids, max_new_tokens=100):
         self.eval()
-        with torch.no_grad():  # 禁用梯度，减少内存消耗
+        with torch.no_grad(): 
             for _ in range(max_new_tokens):
                 if ids.size(1) >= ModelConfig.block_size:
                     ids_cond = ids[:, -ModelConfig.block_size:]
@@ -178,31 +172,25 @@ class ARONA(nn.Module):
                     ids_cond = ids
 
                 logits, _ = self(ids_cond)
-                logits = logits[:, -1, :]  # 取最后一个时间步的logits
+                logits = logits[:, -1, :]  
 
-                # 检查logits是否包含NaN或inf
                 if torch.isnan(logits).any() or torch.isinf(logits).any():
                     raise ValueError("Logits contain NaN or Inf")
 
-                # 实现top_k采样，避免生成EOS和PAD token
                 top_k = 40
-                temperature = 0.9  # 提高温度增加随机性
+                temperature = 0.9 
                 
-                # 显式降低EOS和PAD token的概率，鼓励模型生成更多文本
-                logits[:, self.eos_token] /= 2.0  # 降低EOS的概率
+                logits[:, self.eos_token] /= 2.0  
                 logits[:, ModelConfig.pad_token_id] = -float('inf')  # 禁止生成PAD
                 
-                # 温度缩放
                 logits = logits / temperature
                 
-                # top-k采样
                 v, _ = torch.topk(logits, top_k)
                 logits[logits < v[:, [-1]]] = -float('inf')
                 
                 probs = F.softmax(logits, dim=-1)
                 
-                # 打印top-10概率的token，方便调试
-                if _ == 0:  # 只对第一个token进行打印
+                if _ == 0:  
                     top_probs, top_indices = torch.topk(probs, 10)
                     print("Top tokens and their probabilities:")
                     for i, (idx, prob) in enumerate(zip(top_indices[0], top_probs[0])):
@@ -213,16 +201,13 @@ class ARONA(nn.Module):
                         except:
                             print(f"{i+1}. Token {token}: {prob.item():.4f}")
 
-                # 检查概率是否有效
                 if torch.isnan(probs).any() or (probs < 0).any():
                     raise ValueError("Invalid probabilities")
 
                 next_token = torch.multinomial(probs, num_samples=1)
                 
-                # 只有当连续生成3个以上EOS或PAD时才停止生成
-                # 这是一个简单的防止过早终止的策略
+
                 if next_token.item() == self.eos_token and len(ids[0]) > 10:
-                    # 检查前面是否有完整句子，如果有才中断
                     if "。" in self.tokenizer.decode(ids[0][-10:].cpu().tolist()) or \
                        "!" in self.tokenizer.decode(ids[0][-10:].cpu().tolist()) or \
                        "?" in self.tokenizer.decode(ids[0][-10:].cpu().tolist()):
@@ -230,7 +215,6 @@ class ARONA(nn.Module):
                 
                 ids = torch.cat([ids, next_token], dim=-1)
                 
-                # 每生成10个token打印一次当前输出
                 if _ % 10 == 0 and _ > 0:
                     print(f"Generation progress: {self.tokenizer.decode(ids[0].cpu().tolist())}")
                     
@@ -251,24 +235,18 @@ class ARONA(nn.Module):
         
         generated_ids = self.generate(input_ids)
         
-        # 只截取原始输入后的新生成内容
         new_tokens = generated_ids[0][input_len:].cpu().tolist()
         
-        # 过滤掉EOS和PAD tokens
         new_ids = [id for id in new_tokens if id != ModelConfig.pad_token_id]
         
-        # 找到第一个EOS token前的所有token
         try:
             eos_index = new_ids.index(self.eos_token)
             new_ids = new_ids[:eos_index]
         except ValueError:
-            # 如果没有EOS token，保留所有token
             pass
         
-        # 打印生成的原始token
         print(f"Generated {len(new_ids)} new tokens: {new_ids}")
         
-        # 解码并返回
         return self.tokenizer.decode(new_ids)
 
 class AronaDataset(Dataset):
@@ -313,11 +291,3 @@ class AronaDataset(Dataset):
         x = torch.tensor(chunk[:-1], dtype=torch.long)
         y = torch.tensor(chunk[1:], dtype=torch.long)
         return x, y
-
-    def encode(self, text):
-        """将文本编码为token IDs"""
-        return self.enc.encode(text)
-
-    def decode(self, ids):
-        """将token IDs解码为文本"""
-        return self.enc.decode(ids)
