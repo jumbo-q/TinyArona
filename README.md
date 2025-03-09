@@ -23,8 +23,9 @@ run `train.py`
 #### download
 
 [Genshin Data](https://drive.google.com/file/d/1gCua0vShgr1_xG2WOImsu6-PrSzLRFvr/view?usp=sharing)
-[!IMPORTANT]
-> Need to use [data_generator.py](./tools/data_generator.py) to generate format data
+
+> [!IMPORTANT]
+> Need to use [data_generator.py](./tools/data_generator.py) to generate format data (*.py)
 
 
 ### Training
