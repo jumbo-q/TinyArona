@@ -12,8 +12,6 @@ A Tiny CasualLM With Developed Only with Pytorch
 - tokenizer-decode
 
 # Setup
-## trainner
-run `train.py` 
 ### dataset
 
 #### raw
@@ -31,8 +29,3 @@ run `train.py`
 ### Training
 
 run [trian.py](./trainer.py)
-
-
-# TODO
-- [ ] GQA
-- [ ] RoPE
