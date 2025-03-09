@@ -3,14 +3,17 @@ A Tiny CasualLM With Developed Only with Pytorch
 
 
 # Model Structure
-- tokenizer
-- MultiHeadAttention
-- FFN
+- tokenizer-encode
+- embedding layer
+- decoder layer (defualt is 4)
+  - MultiHeadAttention
+  - FFN
 - Softmax
+- tokenizer-decode
 
 # Setup
 ## trainner
-
+run `train.py` 
 ### dataset
 
 #### raw
