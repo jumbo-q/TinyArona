@@ -8,3 +8,5 @@ data/*
 *.npy
 checkpoints/*
 src/__pycache__
+src/*.pyc
+src/.ipynb_checkpoints

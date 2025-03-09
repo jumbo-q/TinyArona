@@ -1,128 +1,161 @@
 import torch
-from torch.utils.data import DataLoader
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, Dataset
 import tiktoken
 import numpy as np
-import math  
+import math
+from torch.utils.data import Dataset, DataLoader
+from src.config import ModelConfig
 
+class ScaledDotProductAttention(nn.Module):
+    """Scaled Dot-Product Attention mechanism"""
+    def __init__(self):
+        super(ScaledDotProductAttention, self).__init__()
+    
+    def forward(self, Q, K, V, mask=None):
+        """
+        Args:
+            Q: [batch_size, n_heads, len_q, d_k]
+            K: [batch_size, n_heads, len_k, d_k]
+            V: [batch_size, n_heads, len_v(=len_k), d_v]
+            mask: [batch_size, n_heads, len_q, len_k]
+        """
+        scores = torch.matmul(Q, K.transpose(-1, -2)) / math.sqrt(Q.size(-1))  # [batch_size, n_heads, len_q, len_k]
+        
+        if mask is not None:
+            scores = scores.masked_fill(mask == 0, -1e10)
+        
+        attn_weights = F.softmax(scores, dim=-1)  
+        context = torch.matmul(attn_weights, V)   
+        return context, attn_weights
 
 class MultiHeadAttetion(nn.Module):
+    """Multi-Head Attention module"""
     def __init__(self, config: ModelConfig):
         super(MultiHeadAttetion, self).__init__()
         self.n_heads = config.num_head
+        self.head_dim = config.hidden_dim // config.num_head
         self.hidden_dim = config.hidden_dim
-        self.query_proj = nn.Linear(config.hidden_dim, config.hidden_dim)
-        self.key_proj = nn.Linear(config.hidden_dim, config.hidden_dim)
-        self.value_proj = nn.Linear(config.hidden_dim, config.hidden_dim)
-        self.register_buffer(
-            'attention_mask',
-            torch.tril(
-                torch.ones(
-                    config.block_size,
-                    config.block_size,
-                )
-            )
-        )
-        # self.act_layer = nn.GELU()
-        self.dropout = nn.Dropout(config.dropout)
+        
+        self.W_Q = nn.Linear(config.hidden_dim, config.hidden_dim)
+        self.W_K = nn.Linear(config.hidden_dim, config.hidden_dim)
+        self.W_V = nn.Linear(config.hidden_dim, config.hidden_dim)
+        
         self.o_proj = nn.Linear(config.hidden_dim, config.hidden_dim)
+        
+        self.dropout = nn.Dropout(config.dropout)
+        self.attention = ScaledDotProductAttention()
+        
+        max_seq_len = config.block_size
+        mask = torch.tril(torch.ones(max_seq_len, max_seq_len))
+        self.register_buffer('causal_mask', mask.unsqueeze(0).unsqueeze(0))
 
-    def forward(self, X, mask=None):
-        Q = self.query_proj(X)
-        K = self.key_proj(X)
-        V = self.value_proj(X)
-
-        batch_size, seq_len, _ = X.shape
-        device = X.device
-
-        causal_mask = self.attention_mask[:seq_len, :seq_len].to(device)  # [seq, seq]
-        causal_mask = causal_mask.bool()  # 转换为布尔型
-
-        if mask is not None:
-            pad_mask = mask.expand(-1, -1, seq_len, -1)
-            combined_mask = causal_mask.unsqueeze(0) & pad_mask  # [batch,1,seq,seq]
+    def forward(self, x, mask=None):
+        """
+        Args:
+            x: [batch_size, seq_len, hidden_dim]
+            mask: [batch_size, 1, seq_len, seq_len] or None
+        Returns:
+            output: [batch_size, seq_len, hidden_dim]
+        """
+        batch_size, seq_len = x.size(0), x.size(1)
+        
+        Q = self.W_Q(x).view(batch_size, seq_len, self.n_heads, self.head_dim).transpose(1, 2)  # [batch_size, n_heads, seq_len, head_dim]
+        K = self.W_K(x).view(batch_size, seq_len, self.n_heads, self.head_dim).transpose(1, 2)  # [batch_size, n_heads, seq_len, head_dim]
+        V = self.W_V(x).view(batch_size, seq_len, self.n_heads, self.head_dim).transpose(1, 2)  # [batch_size, n_heads, seq_len, head_dim]
+        
+        if mask is None:
+            attention_mask = self.causal_mask[:, :, :seq_len, :seq_len]
         else:
-            combined_mask = causal_mask.unsqueeze(0)  # [1,1,seq,seq]
-
-        Q = Q.view(batch_size, seq_len, self.n_heads, -1).transpose(1, 2)  # [b,h,s,d]
-        K = K.view(batch_size, seq_len, self.n_heads, -1).transpose(1, 2)
-        V = V.view(batch_size, seq_len, self.n_heads, -1).transpose(1, 2)
-
-        attn_scores = Q @ K.transpose(-1, -2) / math.sqrt(Q.size(-1))
-        attn_scores = attn_scores.masked_fill(~combined_mask, float('-inf'))  # 关键修改点
-
-        attn_weights = F.softmax(attn_scores, dim=-1)
-        attn_weights = self.dropout(attn_weights)
-
-        output = (attn_weights @ V).transpose(1, 2).contiguous()
-        output = output.view(batch_size, seq_len, -1)
-        return self.o_proj(output)
-
+            causal_mask = self.causal_mask[:, :, :seq_len, :seq_len].to(x.device)
+            
+            if mask.dtype == torch.bool:
+                mask = mask.float()
+            
+            attention_mask = causal_mask * mask
+        
+        context, _ = self.attention(Q, K, V, attention_mask)
+        
+        context = context.transpose(1, 2).contiguous().view(batch_size, seq_len, self.hidden_dim)
+        output = self.o_proj(context)
+        output = self.dropout(output)
+        
+        return output
 
 class FFN(nn.Module):
+    """Feed-Forward Network module"""
     def __init__(self, config: ModelConfig):
         super(FFN, self).__init__()
-        self.up_proj = nn.Linear(config.hidden_dim, config.hidden_dim*4)
+        self.up_proj = nn.Linear(config.hidden_dim, config.ffn_dim)
         self.act_layer = nn.GELU()
-        self.down_proj = nn.Linear(config.hidden_dim*4, config.hidden_dim)
+        self.down_proj = nn.Linear(config.ffn_dim, config.hidden_dim)
         self.dropout = nn.Dropout(config.dropout)
-        self.layer_norm = nn.LayerNorm(config.hidden_dim,eps=config.eps)
 
-    def forward(self, X):
-        out = self.up_proj(X)
-        out = self.act_layer(out)
-        out = self.down_proj(out)
-        out = self.dropout(out)
-        out = self.layer_norm(out)
-        return out
+    def forward(self, x):
+        """
+        Args:
+            x: [batch_size, seq_len, hidden_dim]
+        Returns:
+            output: [batch_size, seq_len, hidden_dim]
+        """
+        x = self.up_proj(x)
+        x = self.act_layer(x)
+        x = self.down_proj(x)
+        x = self.dropout(x)
+        return x
 
-
-class decoder_block(nn.Module):
+class DecoderBlock(nn.Module):
+    """Transformer decoder block"""
     def __init__(self, config: ModelConfig):
-        super().__init__()
-        self.layernorm1 = nn.LayerNorm(config.hidden_dim, eps=config.eps)
-        self.MHA = MultiHeadAttetion(config)
-        self.FFN = FFN(config)
-        self.layernorm2 = nn.LayerNorm(config.hidden_dim, eps=config.eps)
+        super(DecoderBlock, self).__init__()
+        self.attn_ln = nn.LayerNorm(config.hidden_dim, eps=config.eps)
+        self.attn = MultiHeadAttetion(config)
+        
+        self.ffn_ln = nn.LayerNorm(config.hidden_dim, eps=config.eps)
+        self.ffn = FFN(config)
 
-    def forward(self, X, mask=None):
-        attn_output = self.MHA(self.layernorm1(X), mask=mask)  
-        X = X + attn_output
-
-        ffn_output = self.FFN(self.layernorm2(X))
-        X = X + ffn_output
-
-        return X
+    def forward(self, x, mask=None):
+        """
+        Args:
+            x: [batch_size, seq_len, hidden_dim]
+            mask: [batch_size, 1, seq_len, seq_len] or None
+        Returns:
+            output: [batch_size, seq_len, hidden_dim]
+        """
+        attn_input = self.attn_ln(x)
+        attn_output = self.attn(attn_input, mask)
+        x = x + attn_output  
+        
+        ffn_input = self.ffn_ln(x)
+        ffn_output = self.ffn(ffn_input)
+        x = x + ffn_output  
+        
+        return x
 
 class ARONA(nn.Module):
-    def __init__(self,config=ModelConfig,tie_weights=True):
+    """ARONA language model"""
+    def __init__(self, config=ModelConfig()):
         super(ARONA, self).__init__()
-        self.block_size= config.block_size
-        self.token_embedding = nn.Embedding(
-            config.vocab_size,
-            config.hidden_dim
-        )
-        self.enc = tiktoken.get_encoding(config.encoding_type)
-        self.eos_token = self.enc.encode(
-            "<|endoftext|>",
-            allowed_special={"<|endoftext|>"}
-        )[0]
-        self.pos_embedding = nn.Embedding(
-            config.block_size,
-            config.hidden_dim
-        )
-        self.layers = nn.Sequential(
-           * [decoder_block(config) for _ in range(config.n_layer)]
-        )
-        self.tokenizer = tiktoken.get_encoding(config.encoding_type)
-        self.layernorm_final = nn.LayerNorm(config.hidden_dim)
-        self.lm_head = nn.Linear(config.hidden_dim, config.vocab_size,bias=False)
-        if tie_weights:
-            self.token_embedding.weight=self.lm_head.weight
-        self.apply(self._init_weights)
+        self.config = config
+        self.block_size = config.block_size
         
+        self.token_embedding = nn.Embedding(config.vocab_size, config.hidden_dim)
+        self.pos_embedding = nn.Embedding(config.block_size, config.hidden_dim)
+        
+        self.emb_dropout = nn.Dropout(config.dropout)
+        
+        self.blocks = nn.ModuleList([DecoderBlock(config) for _ in range(config.n_layer)])
+        
+        self.ln_final = nn.LayerNorm(config.hidden_dim, eps=config.eps)
+        self.lm_head = nn.Linear(config.hidden_dim, config.vocab_size, bias=False)
+        
+        self.token_embedding.weight = self.lm_head.weight
+        
+        self.tokenizer = tiktoken.get_encoding(config.encoding_type)
+        self.eos_token_id = self.tokenizer.encode("<|endoftext|>", allowed_special={"<|endoftext|>"})[0]
+        
+        self.apply(self._init_weights)
+
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
@@ -130,164 +163,162 @@ class ARONA(nn.Module):
                 torch.nn.init.zeros_(module.bias)
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+        elif isinstance(module, nn.LayerNorm):
+            torch.nn.init.ones_(module.weight)
+            torch.nn.init.zeros_(module.bias)
 
-    def forward(self, ids, target=None):
+    def forward(self, ids, targets=None):
+        """
+        Args:
+            ids: [batch_size, seq_len] - input token ids
+            targets: [batch_size, seq_len] - target token ids (optional)
+        Returns:
+            logits: [batch_size, seq_len, vocab_size]
+            loss: scalar tensor (if targets provided)
+        """
         batch_size, seq_len = ids.shape
-
-        # pad_mask [batch, 1, 1, seq_len]
-        pad_mask = (ids != ModelConfig.pad_token_id).unsqueeze(1).unsqueeze(2).to(ids.device)
-
-        # Embedding + Positional Encoding
-        token_embed = self.token_embedding(ids)  # [batch, seq, dim]
-        position_ids = torch.arange(seq_len, device=ids.device).expand(batch_size, seq_len)
-        pos_embed = self.pos_embedding(position_ids)  # [batch, seq, dim]
-        X = token_embed + pos_embed
-
-
-        for layer in self.layers:
-            X = layer(X, mask=pad_mask)  # 需要Decoder Block接收mask
-
-        X = self.layernorm_final(X)
-        logits = self.lm_head(X)
-
-
-        if target is not None:
+        device = ids.device
+        
+        token_embeds = self.token_embedding(ids)
+        
+        positions = torch.arange(0, seq_len, dtype=torch.long, device=device).unsqueeze(0)
+        pos_embeds = self.pos_embedding(positions)
+        
+        x = token_embeds + pos_embeds
+        x = self.emb_dropout(x)
+        
+        attention_mask = (ids != self.config.pad_token_id).float().unsqueeze(1).unsqueeze(2)
+        
+        for block in self.blocks:
+            x = block(x, attention_mask)
+        
+        x = self.ln_final(x)
+        
+        logits = self.lm_head(x)
+        
+        loss = None
+        if targets is not None:
             loss = F.cross_entropy(
                 logits.view(-1, logits.size(-1)),
-                target.view(-1),
-                ignore_index=ModelConfig.pad_token_id
+                targets.view(-1),
+                ignore_index=self.config.pad_token_id
             )
-        else:
-            loss = None
-
+        
         return logits, loss
 
-    def generate(self, ids, max_new_tokens=100):
+    def generate(self, prompt_ids, max_new_tokens=100, temperature=0.8, top_k=40):
+        """Generate text continuation given input prompt ids"""
         self.eval()
-        with torch.no_grad(): 
+        batch_size = prompt_ids.size(0)
+        device = prompt_ids.device
+        
+        ids = prompt_ids.clone()
+        
+        with torch.no_grad():
             for _ in range(max_new_tokens):
-                if ids.size(1) >= ModelConfig.block_size:
-                    ids_cond = ids[:, -ModelConfig.block_size:]
-                else:
-                    ids_cond = ids
-
-                logits, _ = self(ids_cond)
-                logits = logits[:, -1, :]  
-
-                if torch.isnan(logits).any() or torch.isinf(logits).any():
-                    raise ValueError("Logits contain NaN or Inf")
-
-                top_k = 40
-                temperature = 0.9 
+                if ids.size(1) > self.block_size:
+                    ids = ids[:, -self.block_size:]
                 
-                logits[:, self.eos_token] /= 2.0  
-                logits[:, ModelConfig.pad_token_id] = -float('inf')  # 禁止生成PAD
+                logits, _ = self(ids)
                 
-                logits = logits / temperature
+                next_token_logits = logits[:, -1, :]
                 
-                v, _ = torch.topk(logits, top_k)
-                logits[logits < v[:, [-1]]] = -float('inf')
+                next_token_logits = next_token_logits / temperature
                 
-                probs = F.softmax(logits, dim=-1)
+                if top_k > 0:
+                    indices_to_remove = next_token_logits < torch.topk(next_token_logits, top_k)[0][..., -1, None]
+                    next_token_logits[indices_to_remove] = -float('inf')
                 
-                if _ == 0:  
-                    top_probs, top_indices = torch.topk(probs, 10)
-                    print("Top tokens and their probabilities:")
-                    for i, (idx, prob) in enumerate(zip(top_indices[0], top_probs[0])):
-                        token = idx.item()
-                        try:
-                            token_text = self.tokenizer.decode([token])
-                            print(f"{i+1}. Token {token} ('{token_text}'): {prob.item():.4f}")
-                        except:
-                            print(f"{i+1}. Token {token}: {prob.item():.4f}")
-
-                if torch.isnan(probs).any() or (probs < 0).any():
-                    raise ValueError("Invalid probabilities")
-
+                probs = F.softmax(next_token_logits, dim=-1)
+                
                 next_token = torch.multinomial(probs, num_samples=1)
                 
-
-                if next_token.item() == self.eos_token and len(ids[0]) > 10:
-                    if "。" in self.tokenizer.decode(ids[0][-10:].cpu().tolist()) or \
-                       "!" in self.tokenizer.decode(ids[0][-10:].cpu().tolist()) or \
-                       "?" in self.tokenizer.decode(ids[0][-10:].cpu().tolist()):
-                        break
+                ids = torch.cat((ids, next_token), dim=1)
                 
-                ids = torch.cat([ids, next_token], dim=-1)
-                
-                if _ % 10 == 0 and _ > 0:
-                    print(f"Generation progress: {self.tokenizer.decode(ids[0].cpu().tolist())}")
-                    
+                if next_token[0].item() == self.eos_token_id:
+                    break
+        
         return ids
-    
+
     def generate_sentence(self, sentence):
         device = next(self.parameters()).device
-        encoded = self.tokenizer.encode(sentence)
-        input_len = len(encoded)
-        if input_len < self.block_size:
-            encoded += [ModelConfig.pad_token_id] * (self.block_size - input_len)
-        else:
-            encoded = encoded[-self.block_size:]
-        input_ids = torch.tensor([encoded], dtype=torch.long).to(device)
         
-        print(f"Input text: '{sentence}'")
-        print(f"Encoded length: {input_len}, tokens: {encoded[:20]}...")
+        input_ids = torch.tensor([self.tokenizer.encode(sentence)], dtype=torch.long).to(device)
+        
+        if input_ids.size(1) > self.block_size:
+            input_ids = input_ids[:, -self.block_size:]
         
         generated_ids = self.generate(input_ids)
         
-        new_tokens = generated_ids[0][input_len:].cpu().tolist()
+        new_tokens = generated_ids[0, input_ids.size(1):].tolist()
         
-        new_ids = [id for id in new_tokens if id != ModelConfig.pad_token_id]
+        if self.eos_token_id in new_tokens:
+            new_tokens = new_tokens[:new_tokens.index(self.eos_token_id)]
         
-        try:
-            eos_index = new_ids.index(self.eos_token)
-            new_ids = new_ids[:eos_index]
-        except ValueError:
-            pass
+        response = self.tokenizer.decode(new_tokens)
         
-        print(f"Generated {len(new_ids)} new tokens: {new_ids}")
-        
-        return self.tokenizer.decode(new_ids)
+        return response
 
 class AronaDataset(Dataset):
-    def __init__(self,config:ModelConfig):
+    """Dataset for ARONA language model"""
+    def __init__(self, config: ModelConfig):
         super(AronaDataset, self).__init__()
+        self.config = config
         self.block_size = config.block_size
-        self.data_max_lines = config.data_max_lines
-        self.enc = tiktoken.get_encoding(config.encoding_type)
-        self.eos_token = self.enc.encode(
-            "<|endoftext|>",
-            allowed_special={"<|endoftext|>"}
-        )[0]
-        data = np.load('/content/drive/MyDrive/TinyArona/data.npy')
-
-        data = data[:self.data_max_lines]
-
-        raw_enc_data = []
+        self.pad_token_id = config.pad_token_id
+        
+        self.tokenizer = tiktoken.get_encoding(config.encoding_type)
+        self.eos_token_id = self.tokenizer.encode("<|endoftext|>", allowed_special={"<|endoftext|>"})[0]
+        
+        print("Loading data from data.npy...")
+        data = np.load('data.npy', allow_pickle=True)
+        if config.data_max_lines > 0:
+            data = data[:config.data_max_lines]
+        
+        print("Preprocessing data...")
+        self.examples = []
         for text in data:
-            encoded = self.enc.encode(text) 
-            encoded.append(self.eos_token)    
-            raw_enc_data.append(encoded)   
+            try:
+                encoded = self.tokenizer.encode(str(text))
+                if len(encoded) < 2: 
+                    continue
+                    
+                encoded.append(self.eos_token_id)  
+                
+                if len(encoded) <= config.block_size + 1:
+                    
+                    if len(encoded) < config.block_size + 1:
+                        padding_needed = (config.block_size + 1) - len(encoded)
+                        chunk = encoded + [config.pad_token_id] * padding_needed
+                    else:
+                        chunk = encoded
+                        
+                    self.examples.append((
+                        torch.tensor(chunk[:-1], dtype=torch.long),
+                        torch.tensor(chunk[1:], dtype=torch.long)
+                    ))
+                else:
 
-        self.enc_data = []
-        
-        
-        for text in raw_enc_data:
-            chunk = text.copy()
-            target_length = config.block_size + 1
-            if len(chunk) > target_length:
-                chunk = chunk[-target_length:]
-            elif len(chunk) < target_length:
-                pad_needed = target_length - len(chunk)
-
-                chunk += [ModelConfig.pad_token_id] * pad_needed
-            self.enc_data.append(chunk)
+                    for i in range(0, len(encoded) - config.block_size, config.block_size // 2):
+                        chunk = encoded[i:i + config.block_size + 1]
+                        if len(chunk) < config.block_size + 1:
+                            chunk = chunk + [config.pad_token_id] * (config.block_size + 1 - len(chunk))
+                            
+                        self.examples.append((
+                            torch.tensor(chunk[:-1], dtype=torch.long),
+                            torch.tensor(chunk[1:], dtype=torch.long)
+                        ))
+                        
+                        if len(self.examples) >= config.data_max_lines: 
+                            break
+            except Exception as e:
+                print(f"Error processing text: {e}")
+                continue
+                
+        print(f"Created {len(self.examples)} training examples")
 
     def __len__(self):
-        return len(self.enc_data)
+        return len(self.examples)
 
     def __getitem__(self, idx):
-        chunk = self.enc_data[idx]
-        x = torch.tensor(chunk[:-1], dtype=torch.long)
-        y = torch.tensor(chunk[1:], dtype=torch.long)
-        return x, y
+        return self.examples[idx]

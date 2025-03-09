@@ -1,26 +1,33 @@
 from dataclasses import dataclass
+
 @dataclass
 class ModelConfig:
-    batch_size: int=12
-    block_size: int=64
-    num_head: int = 16
-    n_layer: int = 8
-    hidden_dim: int = 1024
-    dropout: float=0.1
-    eps: float=1e-8
-    pad_token_id:int = 50257
-    vocab_size: int=50258 
-    encoding_type:str = 'gpt2'
-    data_max_lines:int= int(4e6)
-    pad_token:str = "<|pad|>"
+    # Model architecture
+    hidden_dim: int = 768         # Embedding size (d_model)
+    num_head: int = 4             # Number of attention heads
+    n_layer: int = 4              # Number of decoder layers
+    ffn_dim: int = 3072           # Feed-forward network dimension (4x hidden_dim)
+    dropout: float = 0.1          # Dropout rate
+    eps: float = 1e-5             # Layer norm epsilon
+    
+    # Tokenizer settings
+    encoding_type: str = 'gpt2'   # Tokenizer type
+    vocab_size: int = 50258       # Vocabulary size for GPT-2 tokenizer
+    block_size: int = 1024        # Maximum sequence length
+    pad_token_id: int = 50257     # Padding token ID
 
-    num_epochs = 20
-    learning_rate = 3e-4
-    min_learning_rate = 1e-5
-    weight_decay = 0.01
-    grad_clip = 1.0
-    warmup_steps = 1000
+    # Training settings
+    batch_size: int = 4          # Batch size
+    num_epochs: int = 20          # Number of training epochs
+    learning_rate: float = 5e-5   # Initial learning rate
+    min_learning_rate: float = 1e-5  # Minimum learning rate for scheduler
+    weight_decay: float = 0.01    # Weight decay for AdamW
+    grad_clip: float = 1.0        # Gradient clipping norm
+    warmup_steps: int = 2000      # Learning rate warmup steps
     
-    t_max = 1000 
+    # Data settings
+    data_max_lines: int = int(1e6)  # Maximum number of lines to load from dataset
     
-    checkpoint_interval = 10000 
+    # Checkpointing
+    checkpoint_interval: int = 5000  # Steps between checkpoints
+    save_dir: str = "checkpoints"    # Directory to save checkpoints
