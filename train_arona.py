@@ -3,7 +3,6 @@ import time
 import torch
 import numpy as np
 import math
-import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader, random_split
 from tqdm import tqdm
 from src.config import ModelConfig
