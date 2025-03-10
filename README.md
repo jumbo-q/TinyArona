@@ -14,16 +14,16 @@ A Tiny CasualLM With Developed Only with Pytorch
 # Setup
 ### dataset
 
-#### raw
+#### SOURCE
 
 [Genshin Impact (from huggingface)](https://huggingface.co/datasets/simon3000/genshin-voice)
 
-#### download
+#### DOWNLOAD
 
-[Genshin Data](https://drive.google.com/file/d/1gCua0vShgr1_xG2WOImsu6-PrSzLRFvr/view?usp=sharing)
+[Genshin Data ](https://drive.google.com/file/d/1gCua0vShgr1_xG2WOImsu6-PrSzLRFvr/view?usp=sharing)
 
 > [!IMPORTANT]
-> Need to use [data_generator.py](./tools/data_generator.py) to generate format data (*.py)
+> Need to use [data_generator.py](./tools/data_generator.py) to generate format data (*.npy)
 
 
 ### Training
